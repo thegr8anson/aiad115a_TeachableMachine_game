@@ -1,0 +1,1574 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>THE VINTAGE GYM - 傳統復古拳擊擂台</title>
+    <!-- Teachable Machine & TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+    <style>
+        :root {
+            --bg-brick: #19120c;
+            --ring-canvas: #3d3025;
+            --leather-red: #9e231b;
+            --vintage-gold: #d4a34b;
+            --gold-bright: #ffd166;
+            --wood-dark: #22140a;
+            --cream-paper: #ece3d2;
+            --guard-green: #38b000;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            margin: 0;
+            padding: 0;
+            font-family: 'Trebuchet MS', 'Georgia', 'Microsoft JhengHei', serif;
+        }
+
+        body {
+            background-color: var(--bg-brick);
+            color: var(--cream-paper);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* 復古拳館磚牆與擂台背景 */
+        #boxing-arena {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: 
+                radial-gradient(circle at 50% 20%, rgba(255, 195, 120, 0.22) 0%, rgba(12, 7, 4, 0.96) 80%),
+                linear-gradient(180deg, #1c120b 0%, #0d0805 100%);
+        }
+
+        .vintage-lamp {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 65vw;
+            height: 85vh;
+            background: radial-gradient(ellipse at top, rgba(255, 190, 105, 0.26) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        /* 傳統麻繩擂台纜繩 */
+        .rope {
+            position: absolute;
+            width: 110%;
+            left: -5%;
+            height: 8px;
+            background: linear-gradient(90deg, #5c1410, #a82d24, #5c1410);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.85);
+        }
+        .rope-1 { top: 62%; transform: rotate(-1.5deg); }
+        .rope-2 { top: 74%; transform: rotate(1deg); }
+        .rope-3 { top: 86%; transform: rotate(-1deg); }
+
+        /* 復古帆布擂台地面 */
+        .ring-canvas-floor {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 33%;
+            background: linear-gradient(180deg, var(--ring-canvas) 0%, #1f1711 100%);
+            border-top: 5px solid #5a4533;
+            transform: perspective(600px) rotateX(28deg);
+            transform-origin: bottom;
+            box-shadow: inset 0 25px 40px rgba(0, 0, 0, 0.95);
+        }
+
+        /* 頂部 HUD 計分板 */
+        #hud-top {
+            position: relative;
+            z-index: 10;
+            width: 95%;
+            max-width: 1150px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 22px;
+            margin-top: 8px;
+            background: linear-gradient(180deg, #382415, #22140a);
+            border: 2px solid var(--vintage-gold);
+            border-radius: 8px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.9);
+        }
+
+        .hud-block {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .hud-label {
+            font-size: 11px;
+            color: #bfa588;
+            letter-spacing: 2px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .hud-val {
+            font-size: 26px;
+            font-weight: 900;
+            color: var(--vintage-gold);
+            text-shadow: 1px 1px 2px #000;
+        }
+
+        #health-container {
+            display: flex;
+            gap: 6px;
+            font-size: 22px;
+        }
+        .heart {
+            color: var(--leather-red);
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        .heart.lost {
+            opacity: 0.15;
+            filter: grayscale(1);
+            transform: scale(0.8);
+        }
+
+        .hud-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .hud-btn {
+            background: linear-gradient(180deg, #5a3c22, #341f11);
+            border: 1px solid var(--vintage-gold);
+            color: var(--vintage-gold);
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            transition: all 0.15s;
+        }
+        .hud-btn:hover {
+            background: var(--vintage-gold);
+            color: #22140a;
+        }
+        .hud-btn.active {
+            border-color: #ffd166;
+            color: #ffd166;
+        }
+
+        /* 獨立裁判播報欄 (完全避免覆蓋對手) */
+        #announcer-bar {
+            position: relative;
+            z-index: 10;
+            width: 95%;
+            max-width: 920px;
+            min-height: 40px;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(22, 14, 9, 0.88);
+            border: 1px solid rgba(212, 163, 75, 0.45);
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            color: #e5d5be;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+            transition: all 0.2s;
+            text-align: center;
+            padding: 4px 15px;
+        }
+        .announce-warn {
+            background: #941f17 !important;
+            color: #fff !important;
+            border-color: #ff5555 !important;
+            box-shadow: 0 0 15px rgba(255, 60, 60, 0.6) !important;
+            animation: pulseWarn 0.3s infinite alternate;
+        }
+        .announce-telegraph {
+            background: #876211 !important;
+            color: #fff9e6 !important;
+            border-color: #ffd166 !important;
+            box-shadow: 0 0 15px rgba(255, 209, 102, 0.6) !important;
+        }
+        .announce-shield {
+            background: #a37517 !important;
+            color: #ffffff !important;
+            border-color: #ffd166 !important;
+            box-shadow: 0 0 20px rgba(255, 209, 102, 0.8) !important;
+        }
+        @keyframes pulseWarn {
+            from { transform: scale(0.99); }
+            to { transform: scale(1.01); }
+        }
+
+        /* 中央戰鬥舞台 */
+        #stage {
+            position: relative;
+            z-index: 5;
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 傳統對手容器 */
+        #enemy-container {
+            position: relative;
+            width: 320px;
+            height: 360px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.15s ease-out;
+        }
+
+        .enemy-idle {
+            animation: boxerBreathe 2.2s ease-in-out infinite alternate;
+        }
+        @keyframes boxerBreathe {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-8px); }
+        }
+
+        .enemy-hit-anim {
+            animation: boxerHurt 0.2s ease-out;
+        }
+        @keyframes boxerHurt {
+            0% { transform: translate(0, 0); filter: brightness(1.7); }
+            30% { transform: translate(-12px, -8px) rotate(-4deg); }
+            60% { transform: translate(14px, 4px) rotate(4deg); }
+            100% { transform: translate(0, 0); filter: brightness(1); }
+        }
+
+        /* 攻擊前搖蓄力 */
+        .enemy-charging {
+            animation: boxerWindup 0.4s infinite alternate;
+        }
+        @keyframes boxerWindup {
+            0% { transform: scale(1) translateX(-6px); }
+            100% { transform: scale(1.08) translateX(10px); }
+        }
+
+        /* 出拳打出瞬間 */
+        .enemy-punching {
+            animation: boxerStrike 0.3s ease-in forwards;
+        }
+        @keyframes boxerStrike {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.35) translateY(35px); }
+            100% { transform: scale(1); }
+        }
+
+        /* 對手防禦前兆過渡動畫 (A: 後撤微蹲 + C: 泛光) */
+        .enemy-pre-defense {
+            transform: scale(0.95) translateY(12px) !important;
+            filter: drop-shadow(0 0 16px rgba(255, 209, 102, 0.75)) !important;
+            transition: transform 0.35s ease-out, filter 0.35s ease-out;
+        }
+
+        /* 飄動打擊文字 (浮在左右兩側，絕不遮擋正中人物) */
+        .hit-text {
+            position: absolute;
+            font-size: 26px;
+            font-weight: 900;
+            pointer-events: none;
+            animation: floatAway 0.8s ease-out forwards;
+            z-index: 8;
+            text-shadow: 2px 2px 4px #000;
+        }
+        .hit-left { left: 10%; top: 35%; color: #ffd166; }
+        .hit-right { right: 10%; top: 35%; color: #f48c06; }
+        .hit-blocked { left: 50%; transform: translateX(-50%); top: 25%; color: #d00000; font-size: 32px; }
+        .hit-parry { left: 50%; transform: translateX(-50%); top: 20%; color: #70e000; font-size: 34px; }
+
+        @keyframes floatAway {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-45px); }
+        }
+
+        /* 連擊橫幅 (在播報欄下方浮現) */
+        #combo-banner {
+            position: absolute;
+            top: 6px;
+            background: linear-gradient(90deg, transparent, #8e1f18, transparent);
+            color: #ffea00;
+            font-size: 20px;
+            font-weight: 900;
+            padding: 5px 40px;
+            border-radius: 4px;
+            display: none;
+            letter-spacing: 2px;
+            text-shadow: 1px 1px 3px #000;
+            z-index: 9;
+        }
+
+        /* 備戰狀態中央大按鈕 */
+        #ready-overlay {
+            position: absolute;
+            z-index: 15;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            background: rgba(22, 14, 9, 0.92);
+            padding: 22px 38px;
+            border-radius: 10px;
+            border: 2px solid var(--vintage-gold);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+        }
+        .ready-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: var(--vintage-gold);
+            letter-spacing: 2px;
+        }
+        .ready-subtitle {
+            font-size: 13px;
+            color: #bfa588;
+        }
+        .btn-fight-start {
+            background: linear-gradient(180deg, #a82d24, #5c1410);
+            color: #fff;
+            border: 2px solid var(--vintage-gold);
+            padding: 12px 36px;
+            font-size: 20px;
+            font-weight: 900;
+            border-radius: 6px;
+            cursor: pointer;
+            letter-spacing: 2px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.7);
+            transition: transform 0.15s;
+        }
+        .btn-fight-start:hover {
+            transform: scale(1.05);
+            background: linear-gradient(180deg, #c0382d, #721913);
+        }
+
+        /* 底部操作與監控面板 */
+        #bottom-panel {
+            position: relative;
+            z-index: 10;
+            width: 95%;
+            max-width: 1150px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-bottom: 10px;
+        }
+
+        /* 視訊視窗 */
+        #webcam-box {
+            position: relative;
+            width: 200px;
+            height: 150px;
+            background: #000;
+            border-radius: 6px;
+            border: 2px solid #5a4533;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+        }
+        #webcam-box canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        .webcam-tag {
+            position: absolute;
+            bottom: 4px;
+            left: 6px;
+            font-size: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+            color: var(--vintage-gold);
+        }
+
+        /* 中央：玩家防禦耐力條 (核心防擺爛機制) */
+        #player-stamina-card {
+            width: 280px;
+            background: linear-gradient(180deg, #2a1c12, #180f08);
+            border: 2px solid #5a4533;
+            border-radius: 6px;
+            padding: 8px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+        }
+        .stamina-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: bold;
+            color: #bfa588;
+        }
+        .stamina-track {
+            width: 100%;
+            height: 12px;
+            background: #110a05;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid #443224;
+        }
+        #stamina-fill {
+            height: 100%;
+            width: 100%;
+            background: var(--guard-green);
+            transition: width 0.1s linear, background-color 0.2s;
+        }
+
+        /* 右側：TM 辨識進度條 (信心分數門檻提升到 90%) */
+        #confidence-card {
+            width: 260px;
+            background: linear-gradient(180deg, #2a1c12, #180f08);
+            border: 2px solid #5a4533;
+            border-radius: 6px;
+            padding: 8px 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.8);
+        }
+        .bar-group {
+            margin-bottom: 4px;
+        }
+        .bar-info {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: 700;
+            color: #bfa588;
+        }
+        .bar-track {
+            width: 100%;
+            height: 6px;
+            background: #110a05;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            width: 0%;
+            background: #554133;
+            transition: width 0.1s linear;
+        }
+        .bar-active .bar-fill {
+            background: var(--vintage-gold);
+            box-shadow: 0 0 6px var(--vintage-gold);
+        }
+
+        /* 震動與紅屏受傷 */
+        .screen-shake {
+            animation: shake 0.3s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-3px, -2px, 0); }
+            30%, 70% { transform: translate3d(-5px, 3px, 0); }
+            50% { transform: translate3d(5px, -3px, 0); }
+        }
+        #damage-flash {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(142, 31, 24, 0.45);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 25;
+            transition: opacity 0.1s;
+        }
+
+        /* 模態視窗 (說明/KO結算) - 背景半透明景深模糊，絕不背後全黑 */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(8, 5, 3, 0.45);
+            backdrop-filter: blur(3px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        .modal-card {
+            background: linear-gradient(180deg, #322115, #1e130b);
+            border: 3px solid var(--vintage-gold);
+            border-radius: 10px;
+            width: 90%;
+            max-width: 560px;
+            padding: 24px 28px;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.85);
+            color: var(--cream-paper);
+        }
+        .modal-title {
+            font-size: 26px;
+            font-weight: 900;
+            color: var(--vintage-gold);
+            letter-spacing: 2px;
+            margin-bottom: 12px;
+        }
+        .modal-body {
+            text-align: left;
+            font-size: 13.5px;
+            line-height: 1.65;
+            margin-bottom: 18px;
+            background: rgba(0, 0, 0, 0.35);
+            padding: 14px;
+            border-radius: 6px;
+            border-left: 4px solid var(--vintage-gold);
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+        .modal-body strong {
+            color: var(--gold-bright);
+        }
+        .tip-box {
+            margin-top: 10px;
+            padding: 8px 10px;
+            background: rgba(212, 163, 75, 0.15);
+            border: 1px dashed var(--vintage-gold);
+            border-radius: 4px;
+            font-size: 12.5px;
+        }
+        .modal-btn-group {
+            display: flex;
+            justify-content: center;
+            gap: 14px;
+        }
+        .modal-btn {
+            background: linear-gradient(180deg, #a82d24, #5c1410);
+            border: 1px solid var(--vintage-gold);
+            color: #fff;
+            padding: 10px 24px;
+            font-size: 15px;
+            font-weight: 900;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .modal-btn:hover {
+            transform: scale(1.03);
+        }
+        .modal-btn.secondary {
+            background: linear-gradient(180deg, #5a4533, #382415);
+            color: var(--cream-paper);
+        }
+
+        #ko-title {
+            font-size: 68px;
+            font-weight: 900;
+            color: #d00000;
+            font-style: italic;
+            text-shadow: 2px 2px 10px #000;
+            margin-bottom: 4px;
+        }
+        .leaderboard-list {
+            margin: 10px 0;
+            padding: 0;
+            list-style: none;
+        }
+        .leaderboard-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 12px;
+            background: rgba(0, 0, 0, 0.3);
+            margin-bottom: 5px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="damage-flash"></div>
+
+    <!-- 拳擊館背景與擂台纜繩 -->
+    <div id="boxing-arena">
+        <div class="vintage-lamp"></div>
+        <div class="rope rope-1"></div>
+        <div class="rope rope-2"></div>
+        <div class="rope rope-3"></div>
+        <div class="ring-canvas-floor"></div>
+    </div>
+
+    <!-- 頂部 HUD 計分板 -->
+    <div id="hud-top">
+        <div class="hud-block">
+            <span class="hud-label">生命值 (HP)</span>
+            <div id="health-container">
+                <span class="heart" id="hp-1">🥊</span>
+                <span class="heart" id="hp-2">🥊</span>
+                <span class="heart" id="hp-3">🥊</span>
+            </div>
+        </div>
+
+        <div class="hud-block" style="align-items: center;">
+            <span class="hud-label">目前積分 (PTS)</span>
+            <span class="hud-val" id="score-display">0</span>
+        </div>
+
+        <div class="hud-block" style="align-items: center;">
+            <span class="hud-label">連擊 (COMBO)</span>
+            <span class="hud-val" id="combo-display" style="color: var(--gold-bright);">0</span>
+        </div>
+
+        <div class="hud-actions">
+            <button class="hud-btn" id="btn-bgm-toggle" onclick="toggleBGM()">🎵 音樂: 開</button>
+            <button class="hud-btn" onclick="openInstructions()">📜 擂台守則</button>
+        </div>
+    </div>
+
+    <!-- 獨立裁判播報欄 (完全避免覆蓋對手動作) -->
+    <div id="announcer-bar">
+        <span id="announcer-text">備戰中：請坐正並將鏡頭對準胸口以上，準備就緒後點擊開戰！</span>
+    </div>
+
+    <!-- 中央戰鬥舞台 -->
+    <div id="stage">
+        <!-- 連擊橫幅 -->
+        <div id="combo-banner">🔥 左右交替連擊 BONUS!</div>
+
+        <!-- 備戰開始按鈕 (未開打時顯示，讓玩家充分準備) -->
+        <div id="ready-overlay">
+            <div class="ready-title">🥊 選手準備區 (READY)</div>
+            <div class="ready-subtitle">測試鏡頭骨架與出拳反應，確認無誤後開打</div>
+            <button class="btn-fight-start" id="btn-ring-bell" onclick="startMatch()">🔔 敲鐘開戰 (FIGHT)</button>
+        </div>
+
+        <div id="enemy-container" class="enemy-idle">
+            <!-- 傳統老派拳手向量實體 (純 SVG，無任何外部破圖風險) -->
+            <svg id="enemy-svg" viewBox="0 0 240 280" width="300" height="350">
+                <defs>
+                    <linearGradient id="skinTone" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#e2aa7d"/>
+                        <stop offset="100%" stop-color="#b87a4c"/>
+                    </linearGradient>
+                    <radialGradient id="leatherGlove" cx="40%" cy="40%" r="60%">
+                        <stop offset="0%" stop-color="#aa281e"/>
+                        <stop offset="100%" stop-color="#540e09"/>
+                    </radialGradient>
+                    <radialGradient id="guardGlove" cx="40%" cy="40%" r="60%">
+                        <stop offset="0%" stop-color="#d4a34b"/>
+                        <stop offset="100%" stop-color="#694e1d"/>
+                    </radialGradient>
+                </defs>
+
+                <!-- 健碩軀幹與肌肉線條 -->
+                <path d="M 65 95 L 175 95 L 160 210 L 80 210 Z" fill="url(#skinTone)" stroke="#52321a" stroke-width="3"/>
+                <path d="M 85 130 C 100 145, 115 130, 120 130 C 125 130, 140 145, 155 130" stroke="#754727" stroke-width="3" fill="none"/>
+                <line x1="120" y1="130" x2="120" y2="190" stroke="#754727" stroke-width="2.5"/>
+
+                <!-- 拳擊短褲與皮帶 -->
+                <rect x="75" y="200" width="90" height="30" fill="#2b3a4a" stroke="#17222c" stroke-width="2"/>
+                <rect x="75" y="200" width="90" height="8" fill="#d4a34b"/>
+
+                <!-- 頸部與頭部 -->
+                <rect x="105" y="65" width="30" height="35" fill="url(#skinTone)"/>
+                <circle cx="120" cy="55" r="28" fill="url(#skinTone)" stroke="#52321a" stroke-width="2.5"/>
+
+                <!-- 復古短髮、眉毛與八字翹鬍 -->
+                <path d="M 92 48 C 92 25, 148 25, 148 48 Z" fill="#2d1c12"/>
+                <rect x="102" y="46" width="12" height="4" rx="2" fill="#2d1c12"/>
+                <rect x="126" y="46" width="12" height="4" rx="2" fill="#2d1c12"/>
+                <circle id="boxer-left-eye" cx="108" cy="54" r="3" fill="#111"/>
+                <circle id="boxer-right-eye" cx="132" cy="54" r="3" fill="#111"/>
+                <path d="M 104 68 C 112 62, 120 66, 120 66 C 120 66, 128 62, 136 68 C 128 72, 120 68, 120 68 C 120 68, 112 72, 104 68 Z" fill="#2d1c12"/>
+
+                <!-- 常態姿態：雙手自然握拳預備架勢 -->
+                <g id="boxer-normal-arms">
+                    <path d="M 65 105 L 45 135 L 55 160" stroke="url(#skinTone)" stroke-width="18" stroke-linecap="round" fill="none"/>
+                    <circle id="boxer-left-glove" cx="58" cy="165" r="22" fill="url(#leatherGlove)" stroke="#300" stroke-width="2"/>
+                    <rect x="50" y="150" width="16" height="5" fill="#fff"/>
+
+                    <path d="M 175 105 L 195 135 L 185 160" stroke="url(#skinTone)" stroke-width="18" stroke-linecap="round" fill="none"/>
+                    <circle id="boxer-right-glove" cx="182" cy="165" r="22" fill="url(#leatherGlove)" stroke="#300" stroke-width="2"/>
+                    <rect x="174" y="150" width="16" height="5" fill="#fff"/>
+                </g>
+
+                <!-- 防守姿態：雙臂胸前交錯緊密抱胸格擋 (Defend) -->
+                <g id="boxer-guard-arms" style="display: none;">
+                    <path d="M 65 110 L 140 145" stroke="url(#skinTone)" stroke-width="18" stroke-linecap="round"/>
+                    <path d="M 175 110 L 100 145" stroke="url(#skinTone)" stroke-width="18" stroke-linecap="round"/>
+                    <circle cx="100" cy="145" r="22" fill="url(#guardGlove)" stroke="#420" stroke-width="2"/>
+                    <circle cx="140" cy="145" r="22" fill="url(#guardGlove)" stroke="#420" stroke-width="2"/>
+                    <rect x="92" y="138" width="16" height="5" fill="#fff"/>
+                    <rect x="132" y="138" width="16" height="5" fill="#fff"/>
+                </g>
+            </svg>
+        </div>
+    </div>
+
+    <!-- 底部監控與耐力操作面板 -->
+    <div id="bottom-panel">
+        <!-- 視訊與骨架 -->
+        <div id="webcam-box">
+            <canvas id="canvas"></canvas>
+            <span class="webcam-tag">📷 姿勢偵測視訊</span>
+        </div>
+
+        <!-- 玩家防禦耐力條 (核心防擺爛機制) -->
+        <div id="player-stamina-card">
+            <div class="stamina-header">
+                <span>防禦耐力 (GUARD STAMINA)</span>
+                <span id="stamina-text">100%</span>
+            </div>
+            <div class="stamina-track">
+                <div id="stamina-fill"></div>
+            </div>
+        </div>
+
+        <!-- 辨識類別信心度長條圖 -->
+        <div id="confidence-card">
+            <div id="bars-container"></div>
+        </div>
+    </div>
+
+    <!-- 彈窗：遊戲說明 (擂台守則) -->
+    <div id="instruction-modal" class="modal-overlay">
+        <div class="modal-card">
+            <h2 class="modal-title">擂 台 競 賽 守 則</h2>
+            <div class="modal-body">
+                <p>🪑 <strong>環境與坐姿要求：</strong><br>
+                本遊戲為<strong>「坐著玩」</strong>，請調整鏡頭高度，確保拍到<strong>胸口以上及完整的雙手動作</strong>。</p>
+                <br>
+                <p>🥊 <strong>進攻與連擊機制：</strong><br>
+                • <strong>左右開弓</strong>：左拳 ⇄ 右拳交替揮動，每次命中 +20 分並累計 Combo，觸發 BONUS 額外加分！<br>
+                • <strong>單側維持出拳</strong>：若出拳後手伸直不收回，每 400ms 算一次打擊（+5分），但會<strong>急速激怒對手發動反擊</strong>！切勿無腦貪拳。</p>
+                <br>
+                <p>🛡️ <strong>防禦耐力與嚴防擺爛：</strong><br>
+                • <strong>防禦動作為「雙手胸前抱胸 / 交叉 (defend)」</strong>：當對手眼冒紅光時，請在胸前交叉雙手格擋。<br>
+                • <strong>防禦耐力限制</strong>：一直抱胸防禦會持續消耗耐力（約 2.5 秒見底），見底將觸發<strong>「架式瓦解 (GUARD BREAK)」直接扣 1 命</strong>！及時放鬆手部回到待機或主動出拳可快速回補耐力。<br>
+                • <strong>注意對手防禦</strong>：對手防禦前會有<strong>「下沉後撤微蹲」前搖與踩地摩擦聲</strong>，若在前搖後對手已雙臂抱胸，此時揮拳會彈刀並中斷 Combo！</p>
+                
+                <div class="tip-box">
+                    💡 <strong>姿勢校正與疑難排除（若無動作卻卡在左拳）：</strong><br>
+                    若坐姿手部靠桌、鍵盤或陰影干擾導致系統偶爾卡在 left punch，請嘗試<strong>微調坐姿將手肘向後縮緊貼腰際身側</strong>，或做一次明確的<strong>「雙手胸前抱胸 (defend)」</strong>即可重新校正特徵！
+                </div>
+            </div>
+            <button class="modal-btn" onclick="closeInstructions()">我已明瞭，進入備戰模式</button>
+        </div>
+    </div>
+
+    <!-- 彈窗：K.O. 結算畫面 (背景半透明景深模糊，絕不背後全黑) -->
+    <div id="ko-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <div id="ko-title">K. O. !</div>
+            <p style="font-size: 16px; margin-bottom: 8px;">你已被擊倒在擂台上！</p>
+            <div style="font-size: 24px; font-weight: 900; color: var(--vintage-gold); margin-bottom: 14px;">
+                最終得分：<span id="final-score">0</span>
+            </div>
+
+            <div style="background: rgba(0,0,0,0.35); padding: 10px; border-radius: 6px; margin-bottom: 18px;">
+                <div style="font-size: 12px; color: #bfa588; margin-bottom: 5px;">🏆 拳館名人堂 (前三高紀錄)</div>
+                <ul class="leaderboard-list" id="leaderboard-body"></ul>
+            </div>
+
+            <div class="modal-btn-group">
+                <button class="modal-btn secondary" onclick="backToReadyState()">🔙 返回備戰模式</button>
+                <button class="modal-btn" onclick="restartMatchDirectly()">🔄 直接再戰一場</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Teachable Machine 專屬模型連結
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/zSAdWzAy-/";
+
+        let model, webcam, ctx, maxPredictions;
+        let isModelLoaded = false;
+        let isGameRunning = false; // 是否已敲鐘正式開打
+
+        // 戰鬥狀態數據
+        let score = 0;
+        let lives = 3;
+        let combo = 0;
+        let lastPunchSide = null;
+        let singleSideHoldStart = 0;
+        const SINGLE_PUNCH_INTERVAL = 400; // 單邊停留每 400ms 計算一次
+
+        // 防禦耐力系統 (防防禦擺爛刷分)
+        let guardStamina = 100;
+        const STAMINA_DRAIN_RATE = 0.95; // 防禦時快速消耗 (~2.6 秒見底)
+        const STAMINA_RECOVERY_RATE = 0.55; // 待機/出拳時平穩恢復
+        let isGuardBroken = false;
+
+        // 姿勢判定變數
+        let currentPlayerClass = "idle";
+        let currentProbability = 0;
+
+        // 敵人 AI 狀態控制
+        // 'idle' | 'telegraphing_defense' | 'defending' | 'warning' | 'attacking'
+        let enemyState = "idle";
+        let attackTimer = null;
+        let enemyDefenseTimer = null;
+        let currentAttackInterval = 3600;
+        const MIN_ATTACK_INTERVAL = 1700; // 防搞死玩家的最低臨界值
+        let warningDuration = 800;
+        const MIN_WARNING_DURATION = 580;
+
+        // ==========================================
+        // 雙風格背景音樂 + 打擊音效合成引擎 (Web Audio API 原生，零依賴零404)
+        // ==========================================
+        let audioCtx = null;
+        let bgmEnabled = true;
+        let bgmTimer = null;
+        let bgmStep = 0;
+        let currentBgmMode = "ready"; // 'ready' (放鬆復古) | 'fight' (熱血激昂)
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        // 音樂開關
+        function toggleBGM() {
+            initAudio();
+            bgmEnabled = !bgmEnabled;
+            const btn = document.getElementById("btn-bgm-toggle");
+            if (bgmEnabled) {
+                btn.innerText = "🎵 音樂: 開";
+                btn.classList.add("active");
+                startBGM(currentBgmMode);
+            } else {
+                btn.innerText = "🔇 音樂: 關";
+                btn.classList.remove("active");
+                stopBGM();
+            }
+        }
+
+        function startBGM(mode) {
+            currentBgmMode = mode;
+            stopBGM();
+            if (!bgmEnabled) return;
+            initAudio();
+
+            // 備戰模式：BPM 90 復古行走低音
+            // 開打模式：BPM 135 熱血搖滾鼓點與重低音節奏
+            const interval = (mode === "ready") ? 333 : 222;
+            bgmStep = 0;
+            bgmTimer = setInterval(() => {
+                playBgmStep(mode);
+                bgmStep = (bgmStep + 1) % 16;
+            }, interval);
+        }
+
+        function stopBGM() {
+            if (bgmTimer) {
+                clearInterval(bgmTimer);
+                bgmTimer = null;
+            }
+        }
+
+        function playBgmStep(mode) {
+            if (!audioCtx || !bgmEnabled) return;
+
+            if (mode === "ready") {
+                // 復古放鬆 Lo-Fi 行走低音與柔和電鋼音
+                const bassNotes = [110, 110, 130.8, 146.8, 164.8, 146.8, 130.8, 98];
+                const note = bassNotes[Math.floor(bgmStep / 2) % bassNotes.length];
+                if (bgmStep % 2 === 0) {
+                    playSynthBass(note, 0.28, "triangle", 0.15);
+                }
+                // 輕微踩鈸聲
+                if (bgmStep % 4 === 2) {
+                    playNoiseHiHat(0.04);
+                }
+            } else {
+                // 熱血開打搖滾風格：重低音大鼓 + 奔馳貝斯 + 節奏重擊
+                const rockBass = [82.4, 82.4, 98.0, 82.4, 110.0, 98.0, 82.4, 123.5];
+                const note = rockBass[bgmStep % rockBass.length];
+                playSynthBass(note, 0.16, "sawtooth", 0.2);
+
+                // 每 4 拍正大鼓重音
+                if (bgmStep % 4 === 0) {
+                    playKickDrum(0.3);
+                }
+                // 每 4 拍反軍鼓撞擊
+                if (bgmStep % 4 === 2) {
+                    playSnareDrum(0.22);
+                }
+                // 持續密集 16 分踩鈸
+                playNoiseHiHat(0.05);
+            }
+        }
+
+        function playSynthBass(freq, duration, type, vol) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        function playKickDrum(vol) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(130, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        function playSnareDrum(vol) {
+            const node = audioCtx.createBufferSource();
+            const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < buffer.length; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            node.buffer = buffer;
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = "highpass";
+            filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            node.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            node.start();
+        }
+
+        function playNoiseHiHat(vol) {
+            const node = audioCtx.createBufferSource();
+            const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.04, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < buffer.length; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+            node.buffer = buffer;
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = "highpass";
+            filter.frequency.setValueAtTime(5000, audioCtx.currentTime);
+            const gain = audioCtx.createGain();
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+            node.connect(filter);
+            filter.connect(gain);
+            gain.connect(audioCtx.destination);
+            node.start();
+        }
+
+        // 格鬥音效：開戰銅鑼鐘聲
+        function playBellSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(659.25, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 1.2);
+        }
+
+        // 皮革拳套打擊音
+        function playLeatherPunchSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(35, audioCtx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.65, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.15);
+        }
+
+        // 成功格擋音
+        function playParrySound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "sawtooth";
+            osc.frequency.setValueAtTime(340, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + 0.12);
+            gain.gain.setValueAtTime(0.45, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.12);
+        }
+
+        // 防禦前兆：皮靴踩地磨擦聲 (C 前兆提示)
+        function playShoeSqueakSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(550, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(850, audioCtx.currentTime + 0.08);
+            osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.16);
+            gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.16);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.16);
+        }
+
+        // 架式瓦解破防重音
+        function playGuardBreakSound() {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = "square";
+            osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.4);
+            gain.gain.setValueAtTime(0.85, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+        }
+
+        // ==========================================
+        // 核心模型載入與姿勢預測
+        // ==========================================
+        async function initTM() {
+            const modelURL = MODEL_URL + "model.json";
+            const metadataURL = MODEL_URL + "metadata.json";
+
+            model = await tmPose.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            const size = 200;
+            const flip = true;
+            webcam = new tmPose.Webcam(size, size, flip);
+            await webcam.setup();
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            const canvas = document.getElementById("canvas");
+            canvas.width = size;
+            canvas.height = size;
+            ctx = canvas.getContext("2d");
+
+            // 建立右下條狀圖
+            const barsContainer = document.getElementById("bars-container");
+            barsContainer.innerHTML = "";
+            for (let i = 0; i < maxPredictions; i++) {
+                const group = document.createElement("div");
+                group.className = "bar-group";
+                group.id = `bar-group-${i}`;
+                group.innerHTML = `
+                    <div class="bar-info">
+                        <span id="label-name-${i}">Class</span>
+                        <span id="label-val-${i}">0%</span>
+                    </div>
+                    <div class="bar-track">
+                        <div class="bar-fill" id="bar-fill-${i}"></div>
+                    </div>
+                `;
+                barsContainer.appendChild(group);
+            }
+            isModelLoaded = true;
+        }
+
+        async function loop() {
+            webcam.update();
+            await predict();
+            updateStaminaSystem(); // 每幀刷新耐力邏輯
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+            const prediction = await model.predict(posenetOutput);
+
+            let maxVal = 0;
+            let topClassRaw = "";
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const name = prediction[i].className;
+                const prob = prediction[i].probability;
+                document.getElementById(`label-name-${i}`).innerText = name;
+                document.getElementById(`label-val-${i}`).innerText = `${(prob * 100).toFixed(0)}%`;
+                const fill = document.getElementById(`bar-fill-${i}`);
+                fill.style.width = `${prob * 100}%`;
+
+                // 提升判斷高亮門檻到 90%
+                const group = document.getElementById(`bar-group-${i}`);
+                if (prob >= 0.90) {
+                    group.classList.add("bar-active");
+                } else {
+                    group.classList.remove("bar-active");
+                }
+
+                if (prob > maxVal) {
+                    maxVal = prob;
+                    topClassRaw = name.toLowerCase();
+                }
+            }
+
+            // 繪製骨架
+            if (pose) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(webcam.canvas, 0, 0);
+                tmPose.drawKeypoints(pose.keypoints, 0.5, ctx);
+                tmPose.drawSkeleton(pose.keypoints, 0.5, ctx);
+            }
+
+            // 提高判定門檻至 0.90 (90%)，徹底防止坐姿微動誤判出拳
+            if (maxVal >= 0.90) {
+                if (topClassRaw.includes("left")) currentPlayerClass = "left punch";
+                else if (topClassRaw.includes("right")) currentPlayerClass = "right punch";
+                else if (topClassRaw.includes("defend") || topClassRaw.includes("shield")) currentPlayerClass = "defend";
+                else currentPlayerClass = "idle";
+                currentProbability = maxVal;
+            } else if (maxVal >= 0.85 && (currentPlayerClass === "left punch" || currentPlayerClass === "right punch")) {
+                // 單側維持出拳時門檻放寬至 0.85，便於維持判定
+                currentProbability = maxVal;
+            } else {
+                currentPlayerClass = "idle";
+            }
+
+            if (isGameRunning) {
+                handleCombatLogic();
+            }
+        }
+
+        // ==========================================
+        // 防禦耐力系統 (嚴防抱胸擺爛刷分)
+        // ==========================================
+        function updateStaminaSystem() {
+            const fill = document.getElementById("stamina-fill");
+            const text = document.getElementById("stamina-text");
+
+            if (currentPlayerClass === "defend" && isGameRunning) {
+                // 持續防守消耗耐力
+                guardStamina = Math.max(0, guardStamina - STAMINA_DRAIN_RATE);
+            } else {
+                // 待機或出拳時持續恢復
+                guardStamina = Math.min(100, guardStamina + STAMINA_RECOVERY_RATE);
+            }
+
+            // 破防判定
+            if (guardStamina <= 0 && !isGuardBroken && isGameRunning) {
+                isGuardBroken = true;
+                playGuardBreakSound();
+                setAnnouncerText("💥 架式瓦解 (GUARD BREAK)！直接遭受破防重擊扣 1 命！", "announce-warn");
+                lives--;
+                combo = 0;
+                triggerDamageEffect();
+                updateHUD();
+                if (lives <= 0) {
+                    triggerGameOver();
+                    return;
+                }
+            }
+
+            // 耐力回補至 40% 以上解除破防
+            if (guardStamina > 40 && isGuardBroken) {
+                isGuardBroken = false;
+            }
+
+            fill.style.width = `${guardStamina}%`;
+            text.innerText = `${Math.round(guardStamina)}%`;
+
+            if (isGuardBroken || guardStamina < 25) {
+                fill.style.backgroundColor = "#c00";
+            } else if (guardStamina < 55) {
+                fill.style.backgroundColor = "#e09f3e";
+            } else {
+                fill.style.backgroundColor = "var(--guard-green)";
+            }
+        }
+
+        // ==========================================
+        // 戰鬥邏輯：出拳、連擊與前兆容錯
+        // ==========================================
+        function handleCombatLogic() {
+            const now = Date.now();
+            const isPunching = (currentPlayerClass === "left punch" || currentPlayerClass === "right punch");
+
+            if (!isPunching) {
+                lastPunchSide = null;
+                singleSideHoldStart = 0;
+                return;
+            }
+
+            const currentSide = (currentPlayerClass === "left punch") ? "left" : "right";
+
+            // 1. 左右交替開弓 (高額加分)
+            if (lastPunchSide !== null && lastPunchSide !== currentSide) {
+                lastPunchSide = currentSide;
+                singleSideHoldStart = now;
+                applyPlayerPunch(true);
+                return;
+            }
+
+            // 2. 單側維持出拳 (防刷分激怒機制)
+            if (lastPunchSide === currentSide) {
+                if (now - singleSideHoldStart >= SINGLE_PUNCH_INTERVAL) {
+                    singleSideHoldStart = now;
+                    applyPlayerPunch(false);
+                    angerEnemySpeedup();
+                }
+            } else {
+                lastPunchSide = currentSide;
+                singleSideHoldStart = now;
+                applyPlayerPunch(false);
+            }
+        }
+
+        function applyPlayerPunch(isAlternating) {
+            // 若對手正在「防禦前搖 (telegraphing_defense)」過渡期：
+            // 實施壓哨容錯機制：依然視為有效命中，不彈刀、不斷連擊！
+            if (enemyState === "telegraphing_defense") {
+                playLeatherPunchSound();
+                animateEnemyHit();
+                score += 15;
+                showHitText("⚡ 搶攻壓哨! +15", lastPunchSide === "left" ? "hit-left" : "hit-right");
+                updateHUD();
+                return;
+            }
+
+            // 若對手已完全架起「防守姿態 (defending)」：
+            if (enemyState === "defending") {
+                playParrySound();
+                combo = 0;
+                updateHUD();
+                showHitText("BLOCKED!", "hit-blocked");
+                setAnnouncerText("⚠️ 命中敵方嚴密防守！手腕震傷、連擊中斷！", "announce-warn");
+                return;
+            }
+
+            // 正常擊中對手
+            playLeatherPunchSound();
+            animateEnemyHit();
+
+            if (isAlternating) {
+                combo++;
+                score += 20;
+                showHitText(lastPunchSide === "left" ? "左刺拳! +20" : "右重拳! +20", 
+                             lastPunchSide === "left" ? "hit-left" : "hit-right");
+                if (combo > 0 && combo % 5 === 0) {
+                    triggerComboBonus(combo);
+                }
+            } else {
+                score += 5;
+                showHitText("+5", lastPunchSide === "left" ? "hit-left" : "hit-right");
+            }
+
+            updateHUD();
+            adjustDifficulty();
+        }
+
+        function angerEnemySpeedup() {
+            if (enemyState === "idle" && attackTimer) {
+                clearTimeout(attackTimer);
+                attackTimer = setTimeout(startEnemyWarning, 450);
+                setAnnouncerText("🔥 對手被單側揮拳激怒，即將發動猛烈反撲！", "announce-warn");
+            }
+        }
+
+        function animateEnemyHit() {
+            const container = document.getElementById("enemy-container");
+            container.classList.add("enemy-hit-anim");
+            setTimeout(() => container.classList.remove("enemy-hit-anim"), 200);
+        }
+
+        function showHitText(text, cssClass) {
+            const stage = document.getElementById("stage");
+            const elem = document.createElement("div");
+            elem.className = `hit-text ${cssClass}`;
+            elem.innerText = text;
+            stage.appendChild(elem);
+            setTimeout(() => elem.remove(), 800);
+        }
+
+        function triggerComboBonus(count) {
+            const bonusScore = count * 10;
+            score += bonusScore;
+            updateHUD();
+
+            const banner = document.getElementById("combo-banner");
+            banner.innerText = `🔥 左右開弓 COMBO x${count}! 獎勵 +${bonusScore} 點!`;
+            banner.style.display = "block";
+            setTimeout(() => banner.style.display = "none", 1200);
+        }
+
+        function setAnnouncerText(text, cssClass = "") {
+            const bar = document.getElementById("announcer-bar");
+            const span = document.getElementById("announcer-text");
+            bar.className = cssClass;
+            span.innerText = text;
+        }
+
+        // ==========================================
+        // 敵人行為 AI：攻擊預警 vs 防禦前搖 (A+C)
+        // ==========================================
+        function scheduleNextEnemyAction() {
+            if (!isGameRunning) return;
+
+            const isDefenseAction = (Math.random() < 0.35 && enemyState === "idle");
+            if (isDefenseAction) {
+                enemyDefenseTimer = setTimeout(startEnemyDefenseSequence, 1000 + Math.random() * 1000);
+            } else {
+                attackTimer = setTimeout(startEnemyWarning, currentAttackInterval);
+            }
+        }
+
+        // 對手防禦前兆序列 (結合 A 後撤微蹲 + C 踩地聲與金光閃爍)
+        function startEnemyDefenseSequence() {
+            if (!isGameRunning || enemyState !== "idle") return;
+            enemyState = "telegraphing_defense";
+
+            playShoeSqueakSound();
+            setAnnouncerText("⚠️ 對手架式後撤收縮，即將組織防禦！", "announce-telegraph");
+
+            const container = document.getElementById("enemy-container");
+            container.classList.add("enemy-pre-defense");
+
+            // 500ms 前搖過渡期結束後，才正式雙臂抱胸進入防禦
+            setTimeout(() => {
+                if (!isGameRunning || enemyState !== "telegraphing_defense") return;
+
+                enemyState = "defending";
+                container.classList.remove("enemy-pre-defense");
+                setAnnouncerText("🛡️ 對手已在胸前緊密交叉雙臂！切勿出拳！", "announce-shield");
+
+                document.getElementById("boxer-normal-arms").style.display = "none";
+                document.getElementById("boxer-guard-arms").style.display = "block";
+
+                const defenseDuration = 1200 + Math.random() * 500;
+                setTimeout(() => {
+                    if (enemyState === "defending") {
+                        stopEnemyDefense();
+                        scheduleNextEnemyAction();
+                    }
+                }, defenseDuration);
+            }, 500);
+        }
+
+        function stopEnemyDefense() {
+            enemyState = "idle";
+            setAnnouncerText("對手放下防禦，正是進攻時機！");
+            document.getElementById("boxer-normal-arms").style.display = "block";
+            document.getElementById("boxer-guard-arms").style.display = "none";
+        }
+
+        // 敵人發動攻擊預警
+        function startEnemyWarning() {
+            if (!isGameRunning || enemyState !== "idle") return;
+            enemyState = "warning";
+
+            setAnnouncerText("⚠️ 對手眼冒紅光拉後擺拳！快擺出「雙手胸前抱胸」！", "announce-warn");
+            const container = document.getElementById("enemy-container");
+            container.classList.add("enemy-charging");
+            document.getElementById("boxer-left-eye").setAttribute("fill", "#c00");
+            document.getElementById("boxer-right-eye").setAttribute("fill", "#c00");
+
+            setTimeout(() => {
+                if (isGameRunning && enemyState === "warning") {
+                    executeEnemyAttack();
+                }
+            }, warningDuration);
+        }
+
+        function executeEnemyAttack() {
+            enemyState = "attacking";
+            const container = document.getElementById("enemy-container");
+            container.classList.remove("enemy-charging");
+            container.classList.add("enemy-punching");
+
+            setTimeout(() => {
+                if (!isGameRunning) return;
+
+                // 檢核玩家防禦：必須為 defend 且未破防
+                if (currentPlayerClass === "defend" && !isGuardBroken && guardStamina > 0) {
+                    playParrySound();
+                    score += 30;
+                    showHitText("🛡️ 成功格擋! +30", "hit-parry");
+                    setAnnouncerText("堅固格擋！成功化解重擊並掌握反攻破綻！");
+                } else {
+                    playLeatherPunchSound();
+                    lives--;
+                    combo = 0;
+                    triggerDamageEffect();
+                    setAnnouncerText("💥 遭到重拳正面痛擊！", "announce-warn");
+                    if (lives <= 0) {
+                        triggerGameOver();
+                        return;
+                    }
+                }
+
+                updateHUD();
+
+                setTimeout(() => {
+                    container.classList.remove("enemy-punching");
+                    document.getElementById("boxer-left-eye").setAttribute("fill", "#111");
+                    document.getElementById("boxer-right-eye").setAttribute("fill", "#111");
+                    enemyState = "idle";
+                    scheduleNextEnemyAction();
+                }, 300);
+            }, 180);
+        }
+
+        function triggerDamageEffect() {
+            const flash = document.getElementById("damage-flash");
+            flash.style.opacity = "1";
+            document.body.classList.add("screen-shake");
+            setTimeout(() => {
+                flash.style.opacity = "0";
+                document.body.classList.remove("screen-shake");
+            }, 300);
+        }
+
+        function adjustDifficulty() {
+            currentAttackInterval = Math.max(MIN_ATTACK_INTERVAL, 3600 - Math.floor(score / 50) * 110);
+            warningDuration = Math.max(MIN_WARNING_DURATION, 800 - Math.floor(score / 100) * 30);
+        }
+
+        function updateHUD() {
+            document.getElementById("score-display").innerText = score;
+            document.getElementById("combo-display").innerText = combo;
+            for (let i = 1; i <= 3; i++) {
+                const heart = document.getElementById(`hp-${i}`);
+                if (i <= lives) heart.classList.remove("lost");
+                else heart.classList.add("lost");
+            }
+        }
+
+        // ==========================================
+        // K.O. 結算與流程控制
+        // ==========================================
+        function triggerGameOver() {
+            isGameRunning = false;
+            clearTimeout(attackTimer);
+            clearTimeout(enemyDefenseTimer);
+            stopEnemyDefense();
+
+            playBellSound();
+            startBGM("ready"); // 換回備戰放鬆音樂
+            saveHighScore(score);
+
+            document.getElementById("final-score").innerText = score;
+            renderLeaderboard();
+            document.getElementById("ko-modal").style.display = "flex";
+        }
+
+        function saveHighScore(newScore) {
+            let highScores = JSON.parse(localStorage.getItem("vintage_box_scores") || "[]");
+            highScores.push(newScore);
+            highScores.sort((a, b) => b - a);
+            highScores = highScores.slice(0, 3);
+            localStorage.setItem("vintage_box_scores", JSON.stringify(highScores));
+        }
+
+        function renderLeaderboard() {
+            const list = document.getElementById("leaderboard-body");
+            const highScores = JSON.parse(localStorage.getItem("vintage_box_scores") || "[]");
+            list.innerHTML = "";
+            if (highScores.length === 0) {
+                list.innerHTML = `<li class="leaderboard-item"><span>暫無紀錄</span><span>0</span></li>`;
+                return;
+            }
+            highScores.forEach((s, idx) => {
+                const ranks = ["🥇 金腰帶", "🥈 銀腰帶", "🥉 銅腰帶"];
+                const item = document.createElement("li");
+                item.className = "leaderboard-item";
+                item.innerHTML = `<span>${ranks[idx] || `第 ${idx+1} 名`}</span><span style="color:var(--vintage-gold);">${s} PTS</span>`;
+                list.appendChild(item);
+            });
+        }
+
+        // 開始敲鐘開戰
+        function startMatch() {
+            initAudio();
+            playBellSound();
+            document.getElementById("ready-overlay").style.display = "none";
+            score = 0;
+            lives = 3;
+            combo = 0;
+            guardStamina = 100;
+            isGuardBroken = false;
+            enemyState = "idle";
+            updateHUD();
+
+            startBGM("fight"); // 切換為熱血激昂戰鬥音樂
+            setAnnouncerText("🔔 第 1 回合鐘聲敲響！保持專注，隨機應變！");
+            isGameRunning = true;
+            scheduleNextEnemyAction();
+        }
+
+        // 返回備戰模式
+        function backToReadyState() {
+            document.getElementById("ko-modal").style.display = "none";
+            document.getElementById("ready-overlay").style.display = "flex";
+            setAnnouncerText("備戰中：請坐正並將鏡頭對準胸口以上，準備就緒後點擊開戰！");
+            score = 0;
+            lives = 3;
+            combo = 0;
+            guardStamina = 100;
+            isGuardBroken = false;
+            updateHUD();
+            startBGM("ready");
+        }
+
+        // 直接再戰
+        function restartMatchDirectly() {
+            document.getElementById("ko-modal").style.display = "none";
+            startMatch();
+        }
+
+        // 擂台守則說明視窗
+        function openInstructions() {
+            isGameRunning = false;
+            clearTimeout(attackTimer);
+            clearTimeout(enemyDefenseTimer);
+            stopBGM();
+            document.getElementById("instruction-modal").style.display = "flex";
+        }
+
+        async function closeInstructions() {
+            initAudio();
+            if (!isModelLoaded) {
+                await initTM();
+            }
+            document.getElementById("instruction-modal").style.display = "none";
+            document.getElementById("ready-overlay").style.display = "flex";
+            startBGM("ready"); // 進入備戰放鬆風格音樂
+        }
+    </script>
+</body>
+</html>
